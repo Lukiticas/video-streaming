@@ -1,0 +1,17 @@
+{
+  "name": "openstream-worker",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "cassandra-driver": "^4.8.0",
+    "dotenv": "^16.4.5",
+    "ffprobe-static": "^3.1.0",
+    "fluent-ffmpeg": "^2.1.3",
+    "ioredis": "^5.4.1",
+    "minio": "^8.0.1",
+    "winston": "^3.13.0"
+  }
+}

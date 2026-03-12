@@ -1,0 +1,147 @@
+services:
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-01-20T14-49-07Z-cpuv1
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_API_CORS_ALLOW_ORIGIN: "*"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - openstream-net
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - openstream-net
+
+  api:
+    build:
+      context: ./api
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      # Use localhost for MinIO endpoint so that presigned URLs are signed for the host
+      - MINIO_ENDPOINT=localhost
+      - MINIO_PORT=9000
+      - MINIO_USE_SSL=false
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - SCYLLA_HOST=scylla
+    volumes:
+      - ./api:/usr/src/app
+      - /usr/src/app/node_modules
+    extra_hosts:
+      - "localhost:host-gateway"
+    networks:
+      - openstream-net
+    depends_on:
+      - minio
+      - redis
+      - worker
+      - scylla
+
+
+  worker:
+    build:
+      context: ./worker
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
+    environment:
+      - MINIO_ENDPOINT=minio
+      - MINIO_PORT=9000
+      - MINIO_USE_SSL=false
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - SCYLLA_HOST=scylla
+    volumes:
+      - ./worker:/usr/src/app
+      - /usr/src/app/node_modules
+    networks:
+      - openstream-net
+    depends_on:
+      - minio
+      - redis
+      - scylla
+
+  varnish:
+    image: varnish:7.4
+    ports:
+      - "8081:80" # Changed from 8080 to avoid API port conflict
+    volumes:
+      - ./varnish/default.vcl:/etc/varnish/default.vcl:ro
+    environment:
+      - VARNISH_HTTP_PORT=80
+      - VARNISH_SIZE=2G
+    depends_on:
+      - minio
+    networks:
+      - openstream-net
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8000:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./frontend:/usr/share/nginx/html:ro
+    networks:
+      - openstream-net
+    depends_on:
+      - varnish
+
+  scylla:
+    image: scylladb/scylla:5.4.1
+    ports:
+      - "9042:9042"
+    volumes:
+      - scylla_data:/var/lib/scylla
+    networks:
+      - openstream-net
+    command: --smp 1 --memory 1G --developer-mode 1
+
+  scylla-init:
+    image: scylladb/scylla:5.4.1
+    depends_on:
+      - scylla
+    networks:
+      - openstream-net
+    volumes:
+      - ./scylla-init.cql:/init.cql
+    entrypoint: >
+      bash -c "
+      echo 'Waiting for ScyllaDB...' &&
+      until cqlsh scylla 9042 -e 'describe cluster'; do
+        sleep 5;
+      done &&
+      echo 'ScyllaDB is up. Running init script...' &&
+      cqlsh scylla 9042 -f /init.cql &&
+      echo 'Initialization complete.'
+      "
+
+networks:
+  openstream-net:
+    driver: bridge
+
+volumes:
+  minio_data:
+  redis_data:
+  scylla_data:

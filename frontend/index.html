@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenStream MVP - Upload & Play</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            max-width: 800px;
+            width: 100%;
+            background: #1e293b;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }
+        h1 { margin-top: 0; color: #38bdf8; }
+        .upload-section {
+            border: 2px dashed #475569;
+            padding: 2rem;
+            text-align: center;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+            transition: border-color 0.2s;
+        }
+        .upload-section:hover { border-color: #38bdf8; }
+        .progress-bar-container {
+            width: 100%;
+            height: 12px;
+            background: #334155;
+            border-radius: 6px;
+            overflow: hidden;
+            margin-top: 1rem;
+            display: none;
+        }
+        .progress-bar {
+            height: 100%;
+            background: #10b981;
+            width: 0%;
+            transition: width 0.2s;
+        }
+        #file-input { display: none; }
+        .btn {
+            background: #0ea5e9;
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            border: none;
+            font-size: 1rem;
+            font-weight: 500;
+        }
+        .btn:hover { background: #0284c7; }
+        .log-area {
+            background: #000;
+            padding: 1rem;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 0.85rem;
+            height: 150px;
+            overflow-y: auto;
+            margin-bottom: 2rem;
+        }
+        .video-container {
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            display: none;
+        }
+        video { width: 100%; height: 100%; }
+        
+        .playlist {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+            width: 100%;
+        }
+        .video-card {
+            background: #334155;
+            border-radius: 8px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .video-card img {
+            width: 100%;
+            aspect-ratio: 16/9;
+            object-fit: cover;
+            background: #000;
+        }
+        .video-info {
+            padding: 1rem;
+        }
+        .video-title {
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .video-status {
+            font-size: 0.8rem;
+            margin-bottom: 1rem;
+            color: #94a3b8;
+        }
+        .status-concluded { color: #10b981; }
+        .status-processing { color: #f59e0b; }
+        .status-pending { color: #64748b; }
+    </style>
+    <!-- Shaka Player -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.7/shaka-player.ui.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.7/controls.min.css">
+</head>
+<body>
+    <div class="container">
+        <h1>OpenStream MVP</h1>
+        
+        <div class="upload-section" id="drop-zone">
+            <p>Drag & Drop your high quality video here</p>
+            <p>or</p>
+            <label for="file-input" class="btn">Select File</label>
+            <input type="file" id="file-input" accept="video/mp4,video/x-m4v,video/*">
+            
+            <div class="progress-bar-container" id="progress-container">
+                <div class="progress-bar" id="progress-bar"></div>
+            </div>
+            <p id="progress-text"></p>
+        </div>
+
+        <h3>Event Logs</h3>
+        <div class="log-area" id="log-area">
+            <div>[System] Ready to upload...</div>
+        </div>
+
+        <div class="video-container" id="video-container">
+            <video id="video" width="100%" poster="" controls autoplay></video>
+        </div>
+        
+        <div style="margin-top: 1rem; text-align: center;">
+            <input type="text" id="playback-url" placeholder="Paste master.m3u8 URL to playback" style="width: 70%; padding: 0.5rem; border-radius: 4px; border: 1px solid #475569; background: #334155; color: white;">
+            <button class="btn" onclick="loadVideo()">Play URL</button>
+        </div>
+
+        <h3 style="margin-top: 3rem; color: #38bdf8; border-bottom: 1px solid #475569; padding-bottom: 0.5rem;">Your Videos</h3>
+        <div class="row" id="processing-progress-container" style="display: none; margin-top: 1rem; margin-bottom: 2rem;">
+            <div class="col-12 text-center text-muted mb-2">
+                Processing Video... Please wait.
+            </div>
+            <div class="col-12">
+                <div class="progress">
+                    <div id="processing-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                </div>
+            </div>
+        </div>
+        <div class="playlist" id="playlist">
+            <!-- Playlist cards will render here -->
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:8080/v1'; // Assuming default mapping
+        const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB limit
+        
+        const logArea = document.getElementById('log-area');
+        const fileInput = document.getElementById('file-input');
+        const uploadProgressBarContainer = document.getElementById('progress-container'); // Renamed to avoid conflict
+        const uploadProgressBar = document.getElementById('progress-bar'); // Renamed to avoid conflict
+        const uploadProgressText = document.getElementById('progress-text'); // Renamed to avoid conflict
+        const processingProgressBarContainer = document.getElementById('processing-progress-container');
+        const processingProgressBar = document.getElementById('processing-progress-bar');
+        
+        function log(msg) {
+            const div = document.createElement('div');
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            logArea.prepend(div);
+        }
+
+        async function createUploadJob(filename, fileSize, chunksCount) {
+            log(`Requesting presigned URLs for ${chunksCount} chunks...`);
+            const res = await fetch(`${API_URL}/upload/init`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filename, fileSize, chunksCount })
+            });
+            if (!res.ok) throw new Error('Failed to init upload');
+            return res.json();
+        }
+
+        async function uploadChunk(url, chunkData, partNumber) {
+            log(`Uploading chunk ${partNumber}...`);
+            const res = await fetch(url, {
+                method: 'PUT',
+                body: chunkData
+            });
+            if (!res.ok) throw new Error(`Failed to upload chunk ${partNumber}`);
+            log(`Chunk ${partNumber} uploaded successfully.`);
+            return res.headers.get('ETag');
+        }
+
+        async function completeUpload(uploadId, parts, fileKey) {
+            log(`Completing multipart upload...`);
+            const res = await fetch(`${API_URL}/upload/complete`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uploadId, fileKey, parts })
+            });
+            if (!res.ok) throw new Error('Failed to complete upload');
+            log(`Upload complete! Video queued for processing.`);
+        }
+
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            uploadProgressBarContainer.style.display = 'block';
+            uploadProgressBar.style.width = '0%';
+            uploadProgressText.textContent = '';
+            processingProgressBarContainer.style.display = 'none'; // Hide processing bar during upload
+            log(`Selected file: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+            
+            try {
+                const chunksCount = Math.ceil(file.size / CHUNK_SIZE);
+                const initData = await createUploadJob(file.name, file.size, chunksCount);
+                
+                const uploadId = initData.uploadId;
+                const fileKey = initData.fileKey;
+                const urls = initData.urls;
+                
+                const parts = [];
+                for (let i = 0; i < chunksCount; i++) {
+                    const start = i * CHUNK_SIZE;
+                    const end = Math.min(start + CHUNK_SIZE, file.size);
+                    const chunkData = file.slice(start, end);
+                    
+                    const etag = await uploadChunk(urls[i].url, chunkData, urls[i].partNumber);
+                    parts.push({ PartNumber: urls[i].partNumber, ETag: etag });
+                    
+                    const percent = Math.round(((i + 1) / chunksCount) * 100);
+                    uploadProgressBar.style.width = `${percent}%`;
+                    uploadProgressText.textContent = `${percent}%`;
+                }
+                
+                await completeUpload(uploadId, parts, fileKey);
+                
+                // Hide upload progress bar
+                uploadProgressBarContainer.style.display = 'none';
+                uploadProgressText.textContent = '';
+
+                // Show processing progress bar
+                processingProgressBarContainer.style.display = 'flex';
+                processingProgressBar.style.width = '0%';
+                processingProgressBar.setAttribute('aria-valuenow', 0);
+                processingProgressBar.textContent = '0%';
+                log(`Waiting for video processing to complete...`);
+
+                // The worker is now processing. Instead of blind polling, we use SSE for real-time updates!
+                const eventSource = new EventSource(`${API_URL}/upload/${uploadId}/progress`);
+                
+                eventSource.onmessage = function(event) {
+                   const data = JSON.parse(event.data);
+                   console.log("SSE Update: ", data);
+                   
+                   if (data.status === 'PROCESSING') {
+                       processingProgressBar.style.width = `${data.progress}%`;
+                       processingProgressBar.setAttribute('aria-valuenow', data.progress);
+                       
+                       if (data.progress < 100) {
+                           processingProgressBar.textContent = `${data.progress}%`;
+                       } else {
+                           processingProgressBar.textContent = '100% - Saving to Cloud...';
+                       }
+                   }
+                   
+                   if (data.status === 'CONCLUDED') {
+                       eventSource.close();
+                       processingProgressBar.style.width = '100%';
+                       processingProgressBar.textContent = 'Video Ready!';
+                       
+                       // A tiny buffer just for UI smoothness
+                       setTimeout(() => {
+                           processingProgressBarContainer.style.display = 'none';
+                           loadPlaylist();
+                           log('Processing complete! Video is now available.');
+                           
+                           // Auto-play the newly processed video
+                           document.getElementById('playback-url').value = `http://localhost:8000/processed/${uploadId}/master.m3u8`;
+                           loadVideo().catch(e => {
+                               log(`Auto-play retry error: ${e.message}`);
+                           });
+                       }, 1000);
+                   }
+                   
+                   if (data.status === 'FAILED') {
+                       eventSource.close();
+                       processingProgressBarContainer.style.display = 'none';
+                       alert('Video processing failed!');
+                       log('Error: Video processing failed.');
+                   }
+                };
+                
+                eventSource.onerror = function(err) {
+                    console.error("SSE Error:", err);
+                    // If the connection drops before 100%, we could fall back to polling, but for MVP we just log
+                    log("Warning: Lost real-time progress connection.");
+                };
+
+            } catch (err) {
+                console.error(err);
+                log(`Error: ${err.message}`);
+                uploadProgressBar.style.background = '#ef4444';
+                uploadProgressBarContainer.style.display = 'block'; // Ensure it's visible to show error color
+            }
+        });
+
+        // Global instances
+        let player = null;
+        let ui = null;
+
+        // Setup Shaka Player
+        async function loadVideo() {
+            const url = document.getElementById('playback-url').value;
+            if (!url) return alert('Enter a URL first');
+            
+            document.getElementById('video-container').style.display = 'block';
+            
+            const video = document.getElementById('video');
+            const videoContainer = document.getElementById('video-container');
+            
+            // Initialization
+            if (!player) {
+                // Remove standard browser controls to use Shaka's UI
+                video.removeAttribute('controls');
+                
+                player = new shaka.Player(video);
+                ui = new shaka.ui.Overlay(player, videoContainer, video);
+                
+                // --- SECURITY INTERCEPTION ---
+                // Nginx blocks any request to `/processed/` unless it has the correct Auth Header.
+                // We force Shaka to inject the Dummy Header into every chunk request.
+                player.getNetworkingEngine().registerRequestFilter(function(type, request) {
+                    if (type == shaka.net.NetworkingEngine.RequestType.MANIFEST || 
+                        type == shaka.net.NetworkingEngine.RequestType.SEGMENT) {
+                        request.headers['Authorization'] = 'Bearer openstream-secret-token';
+                    }
+                });
+
+                // Shaka Player Config
+                player.configure({
+                    streaming: {
+                        bufferingGoal: 30,
+                        rebufferingGoal: 2,
+                        abr: {
+                            enabled: true,
+                            defaultBandwidthEstimate: 1000000
+                        }
+                    }
+                });
+
+                player.addEventListener('error', (e) => {
+                    console.error('Error code', e.detail.code, 'object', e.detail);
+                    log(`Player Error: ${e.detail.code}`);
+                });
+            }
+
+            try {
+                log(`Loading HLS Stream from: ${url}`);
+                await player.load(url);
+                log('The video has now been loaded!');
+
+                // Attempt to load thumbnails VTT track
+                const videoId = url.split('/processed/')[1].split('/')[0];
+                const vttUrl = `http://localhost:8000/processed/${videoId}/thumbnails.vtt`;
+                try {
+                    log(`Loading Thumbnails from: ${vttUrl}`);
+                    console.log(`[Shaka] Requesting addThumbnailsTrack for: ${vttUrl}`);
+                    
+                    const track = await player.addThumbnailsTrack(vttUrl);
+                    log('Thumbnails track added. Check DevTools console.');
+                    console.log(`[Shaka] Image Track successfully added:`, track);
+                    
+                    const imageTracks = player.getImageTracks();
+                    console.log(`[Shaka] Current image tracks in player (should be > 0):`, imageTracks);
+                    
+                } catch (vttErr) {
+                    log(`Could not load thumbnails: ${vttErr.message}`);
+                    console.error(`[Shaka] Failed to addThumbnailsTrack:`, vttErr);
+                }
+
+                video.play();
+            } catch (e) {
+                log(`Error loading video: ${e.message}`);
+            }
+        }
+        
+        async function loadPlaylist() {
+            try {
+                const res = await fetch(`${API_URL}/videos`);
+                if (!res.ok) return;
+                const videos = await res.json();
+                
+                const playlistEl = document.getElementById('playlist');
+                playlistEl.innerHTML = '';
+                
+                if (videos.length === 0) {
+                    playlistEl.innerHTML = '<span style="color:#94a3b8">No videos uploaded yet.</span>';
+                    return;
+                }
+
+                videos.forEach(v => {
+                    const card = document.createElement('div');
+                    card.className = 'video-card';
+                    
+                    const thumbUrl = v.thumbnail_url || 'data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2216%22%20height%3D%229%22%20viewBox%3D%220%200%2016%209%22%3E%3Crect%20fill%3D%22%231e293b%22%20width%3D%2216%22%20height%3D%229%22%2F%3E%3Ctext%20fill%3D%22%23475569%22%20font-family%3D%22sans-serif%22%20font-size%3D%221px%22%20x%3D%2250%25%22%20y%3D%2250%25%22%20text-anchor%3D%22middle%22%3ENo%20Thumbnail%3C%2Ftext%3E%3C%2Fsvg%3E';
+                    
+                    const statusClass = `status-${(v.status || '').toLowerCase()}`;
+                    
+                    let playBtn = '';
+                    if (v.status === 'CONCLUDED' && v.manifest_url) {
+                        playBtn = `<button class="btn" style="width: 100%; font-size: 0.8rem;" onclick="playDirect('${v.manifest_url}')">Play Video</button>`;
+                    }
+
+                    card.innerHTML = `
+                        <img src="${thumbUrl}" alt="Thumbnail">
+                        <div class="video-info">
+                            <div class="video-title" title="${v.title}">${v.title || 'Untitled Video'}</div>
+                            <div class="video-status ${statusClass}">${v.status || 'UNKNOWN'}</div>
+                            ${playBtn}
+                        </div>
+                    `;
+                    playlistEl.appendChild(card);
+                });
+            } catch (err) {
+                console.error('Error loading playlist', err);
+            }
+        }
+
+        function playDirect(url) {
+            document.getElementById('playback-url').value = url;
+            loadVideo();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        shaka.polyfill.installAll();
+        
+        // Start playlist polling
+        loadPlaylist();
+        setInterval(loadPlaylist, 5000);
+    </script>
+</body>
+</html>
