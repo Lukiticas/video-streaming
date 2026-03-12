@@ -1,13 +1,1 @@
-worker-1  | 
-worker-1  | > openstream-worker@1.0.0 start
-worker-1  | > node index.js
-worker-1  | 
-worker-1  | {"level":"info","message":"Worker started, polling for jobs...","timestamp":"2026-03-12T03:08:03.207Z"}
-worker-1  | {"level":"info","message":"Connected to ScyllaDB successfully.","timestamp":"2026-03-12T03:08:03.222Z"}
-api-1     | 
-api-1     | > openstream-api@1.0.0 start
-api-1     | > node index.js
-api-1     | 
-api-1     | {"level":"info","message":"API Gateway listening on port 8080","timestamp":"2026-03-12T03:08:03.367Z"}
-api-1     | {"level":"info","message":"Connected to ScyllaDB successfully.","timestamp":"2026-03-12T03:08:03.397Z"}
 ===AGENT COMMAND DONE===
